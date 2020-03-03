@@ -1,24 +1,27 @@
 module Main exposing (..)
 
 import Browser
-import Html exposing (Html)
-import Element exposing (Element, el, column, width, fill, centerY, spacing, image, text) 
+import Element exposing (Element, centerY, column, el, fill, image, spacing, text, width)
 import Element.Input as Input
+import Html exposing (Html)
 import Http
+
 
 
 ---- MODEL ----
 
 
 type alias Model =
-    { searchText: String
-    , podcast: Maybe PodcastData
+    { searchText : String
+    , podcast : Maybe PodcastData
     }
 
-type alias PodcastData = 
-    { name: String
-    , contact: String
+
+type alias PodcastData =
+    { name : String
+    , contact : String
     }
+
 
 initialModel : Model
 initialModel =
@@ -45,15 +48,17 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-       SearchChanged str ->
-        ( { model | searchText = str }, Cmd.none )
-       RunSearch ->
-        ( { model | searchText = "" }, searchItunes model.searchText )
-       ItunesData _ ->
-        ( { model | searchText = "OK" }, Cmd.none )
+        SearchChanged str ->
+            ( { model | searchText = str }, Cmd.none )
+
+        RunSearch ->
+            ( { model | searchText = "" }, searchItunes model.searchText )
+
+        ItunesData _ ->
+            ( { model | searchText = "OK" }, Cmd.none )
 
 
-searchItunes: String -> Cmd Msg
+searchItunes : String -> Cmd Msg
 searchItunes search =
     Http.get
         { url = "https://itunes.apple.com/search?media=podcast&lang=en_us&term=" ++ search
@@ -61,19 +66,20 @@ searchItunes search =
         }
 
 
+
 ---- VIEW ----
 
 
 view : Model -> Html Msg
 view model =
-    Element.layout [] (
-        column [ width fill, centerY, spacing 30 ]
-        [ image [ width ( Element.px 30 ), Element.centerX] { src = "/logo.svg", description = "Elm logo"}
-        , el [ Element.centerX ] (text "Your Elm App is working!" )
-        , seachElement model
-        , resultElement model.podcast
-        ]
-    )
+    Element.layout []
+        (column [ width fill, centerY, spacing 30 ]
+            [ image [ width (Element.px 30), Element.centerX ] { src = "/logo.svg", description = "Elm logo" }
+            , el [ Element.centerX ] (text "Your Elm App is working!")
+            , seachElement model
+            , resultElement model.podcast
+            ]
+        )
 
 
 seachElement : Model -> Element Msg
@@ -84,17 +90,20 @@ seachElement model =
         , Input.button [] { onPress = Just RunSearch, label = text "Search" }
         ]
 
+
 resultElement : Maybe PodcastData -> Element msg
 resultElement podcastData =
     case podcastData of
-       Just podcast ->
+        Just podcast ->
             Element.column
                 [ Element.centerX ]
                 [ Element.row [ Element.spacing 20 ] [ text "Podcast:", text podcast.name ]
                 , Element.row [ Element.spacing 20 ] [ text "Contact:", text podcast.contact ]
                 ]
-       Nothing ->
+
+        Nothing ->
             Element.none
+
 
 
 ---- PROGRAM ----
