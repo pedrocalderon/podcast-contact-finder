@@ -3,9 +3,12 @@ module Main exposing (..)
 import Browser
 import Element exposing (Element, centerY, column, el, fill, image, spacing, text, width)
 import Element.Input as Input
+import Element.Background as Background
+import Element.Font as Font
 import Html exposing (Html)
 import Http
-
+import Json.Decode as D
+import Xml.Decode as Xml
 
 
 ---- MODEL ----
@@ -13,20 +16,22 @@ import Http
 
 type alias Model =
     { searchText : String
-    , podcast : Maybe PodcastData
+    , podcasts : List Podcast
     }
 
 
-type alias PodcastData =
-    { name : String
+type alias Podcast =
+    { feed : String
+    , name : String
     , contact : String
+    , owner : String
     }
 
 
 initialModel : Model
 initialModel =
     { searchText = ""
-    , podcast = Nothing
+    , podcasts = []
     }
 
 
@@ -42,7 +47,8 @@ init =
 type Msg
     = SearchChanged String
     | RunSearch
-    | ItunesData (Result Http.Error ())
+    | ItunesData (Result Http.Error (List String))
+    | FeedFetched String (Result Http.Error String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -52,20 +58,59 @@ update msg model =
             ( { model | searchText = str }, Cmd.none )
 
         RunSearch ->
-            ( { model | searchText = "" }, searchItunes model.searchText )
+            ( initialModel, searchItunes model.searchText )
 
-        ItunesData _ ->
-            ( { model | searchText = "OK" }, Cmd.none )
+        ItunesData (Ok feeds) ->
+            ( model, Cmd.batch (List.map fetchFeed feeds) )
 
+        FeedFetched feed (Ok xml) ->
+            let
+                podcasts =
+                    case Xml.run (podcastDecoder feed) xml of
+                        Ok p -> List.append model.podcasts [p]
+                        Err err ->
+                            let
+                                _ = Debug.log "err" err
+                            in
+                            
+                            model.podcasts
+            in
+            ( { model | podcasts = podcasts }, Cmd.none )
+
+        FeedFetched _ (Err _) ->
+            ( model, Cmd.none )
+
+        ItunesData (Err _) ->
+            ( { model | podcasts = [] }, Cmd.none )
 
 searchItunes : String -> Cmd Msg
 searchItunes search =
     Http.get
         { url = "https://itunes.apple.com/search?media=podcast&lang=en_us&term=" ++ search
-        , expect = Http.expectWhatever ItunesData
+        , expect = Http.expectJson ItunesData itunesDecoder
         }
 
 
+itunesDecoder: D.Decoder (List String)
+itunesDecoder = 
+    let
+        decodeResultItem = D.field "feedUrl" D.string
+    in
+    D.field "results" (D.list decodeResultItem)
+
+fetchFeed : String -> Cmd Msg
+fetchFeed feed =
+    Http.get
+        { url = feed
+        , expect = Http.expectString (FeedFetched feed)
+        }
+
+podcastDecoder : String -> Xml.Decoder Podcast
+podcastDecoder feed =
+    Xml.map3 (Podcast feed)
+        (Xml.path ["channel", "title"] (Xml.single Xml.string))
+        (Xml.path ["channel", "itunes:owner", "itunes:email"] (Xml.single Xml.string))
+        (Xml.path ["channel", "itunes:owner", "itunes:name"] (Xml.single Xml.string))
 
 ---- VIEW ----
 
@@ -74,10 +119,8 @@ view : Model -> Html Msg
 view model =
     Element.layout []
         (column [ width fill, centerY, spacing 30 ]
-            [ image [ width (Element.px 30), Element.centerX ] { src = "/logo.svg", description = "Elm logo" }
-            , el [ Element.centerX ] (text "Your Elm App is working!")
-            , seachElement model
-            , resultElement model.podcast
+            [ seachElement model
+            , column [ Element.centerX ] (List.map resultElement model.podcasts)
             ]
         )
 
@@ -87,22 +130,18 @@ seachElement model =
     Element.row
         [ Element.centerX, Element.spacing 10 ]
         [ Input.text [] { onChange = SearchChanged, text = model.searchText, placeholder = Nothing, label = Input.labelHidden "Podcast name" }
-        , Input.button [] { onPress = Just RunSearch, label = text "Search" }
+        , Input.button [ Background.color (Element.rgb255 0 0 0), Font.color (Element.rgb255 255 255 255)] { onPress = Just RunSearch, label = text "Go!" }
         ]
 
 
-resultElement : Maybe PodcastData -> Element msg
-resultElement podcastData =
-    case podcastData of
-        Just podcast ->
-            Element.column
-                [ Element.centerX ]
-                [ Element.row [ Element.spacing 20 ] [ text "Podcast:", text podcast.name ]
-                , Element.row [ Element.spacing 20 ] [ text "Contact:", text podcast.contact ]
-                ]
-
-        Nothing ->
-            Element.none
+resultElement : Podcast -> Element msg
+resultElement podcast =
+    Element.column
+        [ Element.centerX ]
+        [ Element.row [ Element.spacing 20 ] [ text "Podcast:", text podcast.name ]
+        , Element.row [ Element.spacing 20 ] [ text "Contact:", text podcast.contact ]
+        , Element.row [ Element.spacing 20 ] [ text "Feed:", text podcast.feed ]
+        ]
 
 
 
