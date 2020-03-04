@@ -5,6 +5,7 @@ import Element exposing (Element, centerY, column, el, fill, image, spacing, tex
 import Element.Input as Input
 import Element.Background as Background
 import Element.Font as Font
+import Element.Border as Border
 import Html exposing (Html)
 import Http
 import Json.Decode as D
@@ -12,12 +13,6 @@ import Xml.Decode as Xml
 
 
 ---- MODEL ----
-
-
-type alias Model =
-    { searchText : String
-    , podcasts : List Podcast
-    }
 
 
 type alias Podcast =
@@ -28,10 +23,28 @@ type alias Podcast =
     }
 
 
+type alias Model =
+    { searchText : String
+    , podcasts : List Podcast
+    , searching: Bool
+    , results : Int
+    , parsed : Int
+    , errors : Int
+    , loadingItunes : Bool
+    , itunesError  : Bool
+    }
+
+
 initialModel : Model
 initialModel =
     { searchText = ""
     , podcasts = []
+    , searching = False
+    , results = 0
+    , parsed = 0
+    , errors = 0
+    , loadingItunes = False
+    , itunesError = False
     }
 
 
@@ -47,7 +60,7 @@ init =
 type Msg
     = SearchChanged String
     | RunSearch
-    | ItunesData (Result Http.Error (List String))
+    | ItunesData (Result Http.Error (Int, List String))
     | FeedFetched String (Result Http.Error String)
 
 
@@ -58,30 +71,31 @@ update msg model =
             ( { model | searchText = str }, Cmd.none )
 
         RunSearch ->
-            ( initialModel, searchItunes model.searchText )
+            ( { initialModel | searching = True, loadingItunes = True }, searchItunes model.searchText )
 
-        ItunesData (Ok feeds) ->
-            ( model, Cmd.batch (List.map fetchFeed feeds) )
+        ItunesData (Ok (cnt, feeds)) ->
+            ( { model | results = cnt, loadingItunes = False }, Cmd.batch (List.map fetchFeed feeds) )
 
         FeedFetched feed (Ok xml) ->
             let
+                totalParsed = model.parsed + 1
+                parsedXml = Xml.run (podcastDecoder feed) xml
                 podcasts =
-                    case Xml.run (podcastDecoder feed) xml of
+                    case parsedXml of
                         Ok p -> List.append model.podcasts [p]
-                        Err err ->
-                            let
-                                _ = Debug.log "err" err
-                            in
-                            
-                            model.podcasts
+                        Err _ -> model.podcasts
+                errors =
+                    case parsedXml of
+                        Ok _ -> model.errors
+                        Err _ -> model.errors + 1
             in
-            ( { model | podcasts = podcasts }, Cmd.none )
+            ( { model | podcasts = podcasts, parsed = totalParsed, errors = errors }, Cmd.none )
 
         FeedFetched _ (Err _) ->
-            ( model, Cmd.none )
+            ( { model | errors = model.errors + 1 }, Cmd.none )
 
         ItunesData (Err _) ->
-            ( { model | podcasts = [] }, Cmd.none )
+            ( { model | itunesError = True, loadingItunes = False }, Cmd.none )
 
 searchItunes : String -> Cmd Msg
 searchItunes search =
@@ -91,12 +105,14 @@ searchItunes search =
         }
 
 
-itunesDecoder: D.Decoder (List String)
+itunesDecoder: D.Decoder (Int, List String)
 itunesDecoder = 
     let
         decodeResultItem = D.field "feedUrl" D.string
     in
-    D.field "results" (D.list decodeResultItem)
+    D.map2 (\cnt data -> (cnt, data))
+        (D.field "resultCount" D.int)
+        (D.field "results" (D.list decodeResultItem))
 
 fetchFeed : String -> Cmd Msg
 fetchFeed feed =
@@ -120,7 +136,8 @@ view model =
     Element.layout []
         (column [ width fill, centerY, spacing 30 ]
             [ seachElement model
-            , column [ Element.centerX ] (List.map resultElement model.podcasts)
+            , statusBar model
+            , column [ Element.centerX, Element.spacing 20 ] (List.map resultElement model.podcasts)
             ]
         )
 
@@ -130,14 +147,36 @@ seachElement model =
     Element.row
         [ Element.centerX, Element.spacing 10 ]
         [ Input.text [] { onChange = SearchChanged, text = model.searchText, placeholder = Nothing, label = Input.labelHidden "Podcast name" }
-        , Input.button [ Background.color (Element.rgb255 0 0 0), Font.color (Element.rgb255 255 255 255)] { onPress = Just RunSearch, label = text "Go!" }
+        , Input.button
+            [ Background.color (Element.rgb255 0 0 0)
+            , Font.color (Element.rgb255 255 255 255)
+            , Element.padding 12
+            , Border.rounded 4
+            ] { onPress = Just RunSearch, label = text "Go!" }
         ]
+
+
+statusBar : Model -> Element msg
+statusBar model =
+    if not model.searching then
+        Element.none
+    else if model.loadingItunes then
+        Element.el [ Element.centerX ] ( text "Loading iTunes results" )
+    else if model.itunesError then
+        Element.el [ Element.centerX ] ( text "Error fetching data from iTunes" )
+    else
+        Element.row
+            [ Element.centerX, Element.width (Element.px 300), Element.spaceEvenly ]
+            [ text ("Results: " ++ String.fromInt model.results)
+            , text ("Parsed: " ++ String.fromInt model.parsed)
+            , text ("Errors: " ++ String.fromInt model.errors)
+            ]
 
 
 resultElement : Podcast -> Element msg
 resultElement podcast =
     Element.column
-        [ Element.centerX ]
+        [ Element.centerX, Background.color (Element.rgb255 200 200 200), Element.padding 10, Border.rounded 8 ]
         [ Element.row [ Element.spacing 20 ] [ text "Podcast:", text podcast.name ]
         , Element.row [ Element.spacing 20 ] [ text "Contact:", text podcast.contact ]
         , Element.row [ Element.spacing 20 ] [ text "Feed:", text podcast.feed ]
