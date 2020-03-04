@@ -1,15 +1,16 @@
-module Main exposing (..)
+module Main exposing (main)
 
 import Browser
-import Element exposing (Element, centerY, column, el, fill, image, spacing, text, width)
-import Element.Input as Input
+import Element exposing (Element, centerY, column, el, fill, spacing, text, width)
 import Element.Background as Background
-import Element.Font as Font
 import Element.Border as Border
+import Element.Font as Font
+import Element.Input as Input
 import Html exposing (Html)
 import Http
 import Json.Decode as D
 import Xml.Decode as Xml
+
 
 
 ---- MODEL ----
@@ -26,12 +27,12 @@ type alias Podcast =
 type alias Model =
     { searchText : String
     , podcasts : List Podcast
-    , searching: Bool
+    , searching : Bool
     , results : Int
     , parsed : Int
     , errors : Int
     , loadingItunes : Bool
-    , itunesError  : Bool
+    , itunesError : Bool
     }
 
 
@@ -60,7 +61,7 @@ init =
 type Msg
     = SearchChanged String
     | RunSearch
-    | ItunesData (Result Http.Error (Int, List String))
+    | ItunesData (Result Http.Error ( Int, List String ))
     | FeedFetched String (Result Http.Error String)
 
 
@@ -73,21 +74,32 @@ update msg model =
         RunSearch ->
             ( { initialModel | searching = True, loadingItunes = True }, searchItunes model.searchText )
 
-        ItunesData (Ok (cnt, feeds)) ->
+        ItunesData (Ok ( cnt, feeds )) ->
             ( { model | results = cnt, loadingItunes = False }, Cmd.batch (List.map fetchFeed feeds) )
 
         FeedFetched feed (Ok xml) ->
             let
-                totalParsed = model.parsed + 1
-                parsedXml = Xml.run (podcastDecoder feed) xml
+                totalParsed =
+                    model.parsed + 1
+
+                parsedXml =
+                    Xml.run (podcastDecoder feed) xml
+
                 podcasts =
                     case parsedXml of
-                        Ok p -> List.append model.podcasts [p]
-                        Err _ -> model.podcasts
+                        Ok p ->
+                            List.append model.podcasts [ p ]
+
+                        Err _ ->
+                            model.podcasts
+
                 errors =
                     case parsedXml of
-                        Ok _ -> model.errors
-                        Err _ -> model.errors + 1
+                        Ok _ ->
+                            model.errors
+
+                        Err _ ->
+                            model.errors + 1
             in
             ( { model | podcasts = podcasts, parsed = totalParsed, errors = errors }, Cmd.none )
 
@@ -97,6 +109,7 @@ update msg model =
         ItunesData (Err _) ->
             ( { model | itunesError = True, loadingItunes = False }, Cmd.none )
 
+
 searchItunes : String -> Cmd Msg
 searchItunes search =
     Http.get
@@ -105,14 +118,16 @@ searchItunes search =
         }
 
 
-itunesDecoder: D.Decoder (Int, List String)
-itunesDecoder = 
+itunesDecoder : D.Decoder ( Int, List String )
+itunesDecoder =
     let
-        decodeResultItem = D.field "feedUrl" D.string
+        decodeResultItem =
+            D.field "feedUrl" D.string
     in
-    D.map2 (\cnt data -> (cnt, data))
+    D.map2 (\cnt data -> ( cnt, data ))
         (D.field "resultCount" D.int)
         (D.field "results" (D.list decodeResultItem))
+
 
 fetchFeed : String -> Cmd Msg
 fetchFeed feed =
@@ -121,12 +136,15 @@ fetchFeed feed =
         , expect = Http.expectString (FeedFetched feed)
         }
 
+
 podcastDecoder : String -> Xml.Decoder Podcast
 podcastDecoder feed =
     Xml.map3 (Podcast feed)
-        (Xml.path ["channel", "title"] (Xml.single Xml.string))
-        (Xml.path ["channel", "itunes:owner", "itunes:email"] (Xml.single Xml.string))
-        (Xml.path ["channel", "itunes:owner", "itunes:name"] (Xml.single Xml.string))
+        (Xml.path [ "channel", "title" ] (Xml.single Xml.string))
+        (Xml.path [ "channel", "itunes:owner", "itunes:email" ] (Xml.single Xml.string))
+        (Xml.path [ "channel", "itunes:owner", "itunes:name" ] (Xml.single Xml.string))
+
+
 
 ---- VIEW ----
 
@@ -152,7 +170,8 @@ seachElement model =
             , Font.color (Element.rgb255 255 255 255)
             , Element.padding 12
             , Border.rounded 4
-            ] { onPress = Just RunSearch, label = text "Go!" }
+            ]
+            { onPress = Just RunSearch, label = text "Go!" }
         ]
 
 
@@ -160,10 +179,13 @@ statusBar : Model -> Element msg
 statusBar model =
     if not model.searching then
         Element.none
+
     else if model.loadingItunes then
-        Element.el [ Element.centerX ] ( text "Loading iTunes results" )
+        Element.el [ Element.centerX ] (text "Loading iTunes results")
+
     else if model.itunesError then
-        Element.el [ Element.centerX ] ( text "Error fetching data from iTunes" )
+        Element.el [ Element.centerX ] (text "Error fetching data from iTunes")
+
     else
         Element.row
             [ Element.centerX, Element.width (Element.px 300), Element.spaceEvenly ]
