@@ -61,7 +61,7 @@ init =
 type Msg
     = SearchChanged String
     | RunSearch
-    | ItunesData (Result Http.Error ( Int, List String ))
+    | ItunesData (Result Http.Error String)
     | FeedFetched String (Result Http.Error String)
 
 
@@ -74,8 +74,19 @@ update msg model =
         RunSearch ->
             ( { initialModel | searching = True, loadingItunes = True }, searchItunes model.searchText )
 
-        ItunesData (Ok ( cnt, feeds )) ->
-            ( { model | results = cnt, loadingItunes = False }, Cmd.batch (List.map fetchFeed feeds) )
+        ItunesData (Ok itunesResponseString) ->
+            let
+                parseResult =
+                    itunesResponseString
+                        |> clearItunesResponse
+                        |> D.decodeString itunesDecoder
+            in
+            case parseResult of
+                Ok ( cnt, feeds ) ->
+                    ( { model | results = cnt, loadingItunes = False }, Cmd.batch (List.map fetchFeed feeds) )
+
+                Err _ ->
+                    ( { model | itunesError = True, loadingItunes = False }, Cmd.none )
 
         FeedFetched feed (Ok xml) ->
             let
@@ -110,11 +121,22 @@ update msg model =
             ( { model | itunesError = True, loadingItunes = False }, Cmd.none )
 
 
+clearItunesResponse : String -> String
+clearItunesResponse res =
+    res
+        |> String.replace "\n" ""
+        |> String.replace "StrToBeReplaced" ""
+        |> String.dropLeft 1
+        |> String.dropRight 2
+
+
 searchItunes : String -> Cmd Msg
 searchItunes search =
     Http.get
-        { url = "https://itunes.apple.com/search?media=podcast&lang=en_us&term=" ++ search
-        , expect = Http.expectJson ItunesData itunesDecoder
+        { url = "https://itunes.apple.com/search?callback=StrToBeReplaced&media=podcast&lang=en_us&term=" ++ search
+
+        -- , expect = Http.expectString ItunesData itunesDecoder
+        , expect = Http.expectString ItunesData
         }
 
 
